@@ -4,6 +4,7 @@ import { useParams, Link } from "react-router-dom";
 import { Spin } from "antd";
 import NotFoundPage from "./NotFoundPage";
 import { verifyToken, resetPassword } from "../api/authApi";
+import * as Yup from "yup";
 
 function PasswordResetPage() {
   const { token: tokenParam } = useParams<{ token?: string }>();
@@ -36,29 +37,38 @@ function PasswordResetPage() {
     checkToken();
   }, [tokenParam]);
 
-  const validatePassword = (_: any, value: string) => {
-    if (!value) return Promise.resolve();
+  const resetPasswordSchema = Yup.object().shape({
+    password: Yup.string()
+      .required("Password is required")
+      .min(8, "Password must be at least 8 characters")
+      .matches(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .matches(
+        /[!@#$%^&*(),.?":{}|<>]/,
+        "Password must contain at least one symbol"
+      ),
+    confirmPassword: Yup.string()
+      .required("Confirm Password is required")
+      .min(8, "Password must be at least 8 characters")
+      .matches(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .matches(
+        /[!@#$%^&*(),.?":{}|<>]/,
+        "Password must contain at least one symbol"
+      )
+      .oneOf([Yup.ref("password")], "Passwords does not match"),
+  });
 
-    const hasUpperCase = /[A-Z]/.test(value);
-    const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/.test(value);
-
-    if (value.length < 8) {
-      return Promise.reject(
-        new Error("Password must be at least 8 characters")
-      );
-    }
-    if (!hasUpperCase) {
-      return Promise.reject(
-        new Error("Password must contain at least one uppercase letter")
-      );
-    }
-    if (!hasSymbol) {
-      return Promise.reject(
-        new Error("Password must contain at least one symbol")
-      );
-    }
-
-    return Promise.resolve();
+  const yupValidator = (field: "password" | "confirmPassword") => {
+    return async (_: any, value: string) => {
+      try {
+        await resetPasswordSchema.validateAt(field, {
+          password: value,
+          confirmPassword: value,
+        });
+        return Promise.resolve();
+      } catch (err: any) {
+        return Promise.reject(new Error(err.message));
+      }
+    };
   };
 
   const performResetPassword = async (password: string) => {
@@ -98,17 +108,25 @@ function PasswordResetPage() {
     password: string;
     confirmPassword: string;
   }) => {
-    if (values.password !== values.confirmPassword) {
-      api.error({
-        message: "Password Mismatch",
-        description: "Passwords do not match. Please try again.",
-      });
-      return;
-    }
     setSubmitting(true);
-    await performResetPassword(values.password);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setSubmitting(false);
+    try {
+      await resetPasswordSchema.validate(values, { abortEarly: false });
+      await performResetPassword(values.password);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error: any) {
+      let errorMsg = "Something went wrong. Please try again.";
+      if (error.response?.errors?.[0]?.message) {
+        errorMsg = error.response.errors[0].message;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      api.error({
+        message: "Reset Failed",
+        description: errorMsg,
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!token) {
@@ -169,12 +187,7 @@ function PasswordResetPage() {
                   New password
                 </span>
               }
-              rules={[
-                { required: true, message: "Required" },
-                {
-                  validator: validatePassword,
-                },
-              ]}
+              rules={[{ validator: yupValidator("password") }]}
             >
               <Input.Password size="large" placeholder="Enter new password" />
             </Form.Item>
@@ -185,8 +198,9 @@ function PasswordResetPage() {
                   Confirm password
                 </span>
               }
+              dependencies={["password"]}
               // label="Password"
-              rules={[{ required: true, message: "Required" }]}
+              rules={[{ validator: yupValidator("confirmPassword") }]}
             >
               <Input.Password
                 size="large"

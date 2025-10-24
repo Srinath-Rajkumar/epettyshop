@@ -3,6 +3,7 @@ import { useState } from "react";
 import { login } from "../api/authApi";
 import { ClientError } from "graphql-request";
 import { Link } from "react-router-dom";
+import * as Yup from "yup";
 
 interface LoginFormValues {
   emailAddress: string;
@@ -12,6 +13,7 @@ interface LoginFormValues {
 function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [api, contextHolder] = notification.useNotification();
+  const [form] = Form.useForm();
 
   const handleLogin = async (values: LoginFormValues) => {
     setLoading(true);
@@ -58,6 +60,39 @@ function LoginPage() {
     }
   };
 
+  const loginSchema = Yup.object().shape({
+    emailAddress: Yup.string()
+      .required("Email is required")
+      .email("Please enter a valid email address"),
+    password: Yup.string()
+      .required("Password is required")
+      .min(8, "Password must be at least 8 characters")
+      .matches(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .matches(
+        /[!@#$%^&*(),.?":{}|<>]/,
+        "Password must contain at least one symbol"
+      ),
+  });
+
+  const yupValidator = (field: "emailAddress" | "password") => {
+    return async (_: any, value: string) => {
+      try {
+        // Use the current form values
+        const values = {
+          emailAddress:
+            field === "emailAddress"
+              ? value
+              : form.getFieldValue("emailAddress"),
+          password:
+            field === "password" ? value : form.getFieldValue("password"),
+        };
+        await loginSchema.validateAt(field, values);
+        return Promise.resolve();
+      } catch (err: any) {
+        return Promise.reject(new Error(err.message));
+      }
+    };
+  };
   return (
     <>
       {contextHolder}
@@ -127,13 +162,14 @@ function LoginPage() {
                   }
                   // label="Email address"
                   className=""
-                  rules={[
-                    { required: true, message: "Required" },
-                    {
-                      type: "email",
-                      message: "Please enter a valid email address",
-                    },
-                  ]}
+                  //  rules={[
+                  //   { required: true, message: "Required" },
+                  //   {
+                  //     type: "email",
+                  //     message: "Please enter a valid email address",
+                  //   },
+                  // ]}
+                 rules={[{ validator: yupValidator("emailAddress") }]}
                 >
                   <Input size="large" placeholder="Enter email address"></Input>
                 </Form.Item>
@@ -145,7 +181,7 @@ function LoginPage() {
                     </span>
                   }
                   // label="Password"
-                  rules={[{ required: true, message: "Required" }]}
+                  rules={[{ validator: yupValidator("password") }]}
                 >
                   <Input.Password size="large" placeholder="Enter password" />
                 </Form.Item>
